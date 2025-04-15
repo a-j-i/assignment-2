@@ -1,0 +1,81 @@
+import boto3
+import json
+from datetime import datetime
+
+def lambda_handler(event, context):
+    # ✅ 1. Handle CORS preflight request
+    if event['httpMethod'] == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key'
+            },
+            'body': json.dumps({'message': 'CORS preflight handled'})
+        }
+
+    try:
+        # ✅ 2. Get filename from query params or body
+        filename = None
+
+        if event.get('queryStringParameters') and event['queryStringParameters'].get('filename'):
+            filename = event['queryStringParameters']['filename']
+        elif event.get('body') and isinstance(event['body'], dict):
+            filename = event['body'].get('filename')
+        elif event.get('body'):
+            try:
+                filename = json.loads(event['body']).get('filename')
+            except json.JSONDecodeError:
+                pass
+
+        if not filename:
+            return {
+                'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key'
+                },
+                'body': json.dumps({'error': 'Filename missing. Pass via ?filename=test.xlsx or {"filename":"test.xlsx"}'})
+            }
+
+        # ✅ 3. Generate S3 key and presigned URL
+        object_key = f"uploads/{int(datetime.now().timestamp())}_{filename}"
+
+        s3 = boto3.client('s3', region_name='ap-southeast-2')
+        presigned_url = s3.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': 'your-app-uploads-aj',
+                'Key': object_key,
+                'ContentType': 'application/octet-stream'
+            },
+            ExpiresIn=300
+        )
+
+        presigned_url = presigned_url.replace('s3.amazonaws.com', 's3-ap-southeast-2.amazonaws.com')
+
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key'
+            },
+            'body': json.dumps({
+                'url': presigned_url,
+                'filename': object_key
+            })
+        }
+
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, X-Amz-Date, Authorization, X-Api-Key'
+            },
+            'body': json.dumps({'error': str(e)})
+        }
